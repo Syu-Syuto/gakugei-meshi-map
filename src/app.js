@@ -91,7 +91,7 @@ form.addEventListener('submit',e=>{e.preventDefault();busy(form.querySelector('[
   else{await ensureSession();if(preparedPhoto){const slot=await db.rpc('reserve_restaurant_photo');if(slot.error)throw slot.error;d.photo_path=slot.data;setStatus('#submit-status','写真を送信しています…');const upload=await db.storage.from('restaurant-photos').upload(d.photo_path,preparedPhoto,{contentType:'image/jpeg',upsert:false});if(upload.error)throw new Error('写真の送信に失敗しました。しばらくして再度お試しください。');}const {error}=await db.rpc('submit_restaurant',{p:d});if(error)throw error;}
   form.reset();preparedPhoto=null;photoGeneration++;if(previewUrl)URL.revokeObjectURL(previewUrl);previewUrl='';$('#photo-preview').hidden=true;setStatus('#photo-status','');$('#candidates').replaceChildren();setStatus('#location-status','場所が未指定です。');setStatus('#submit-status',demo?'デモの審査待ちに追加しました。「管理」から承認を試せます。このページを再読み込みすると消えます。':'審査に送りました。承認されるまで公開されません。');
 },'#submit-status');});
-async function adminCheck(){if(demo)return true;const {data,error}=await db.rpc('is_admin');if(error)throw error;return data===true;}
+async function adminCheck(){if(demo)return true;const {data:sessionData,error:sessionError}=await db.auth.getSession();if(sessionError)throw sessionError;if(!sessionData.session)return false;const {data,error}=await db.rpc('is_admin');if(error)throw error;return data===true;}
 async function showQueue(){
   if(!await adminCheck())throw new Error('管理者権限がありません。');
   $('#login-form').hidden=true;$('#admin-tools').hidden=false;$('#queue').replaceChildren();

@@ -19,7 +19,7 @@ async function captcha(where){
 function resetCaptcha(where){tokens[where]=null;if(widgetIds[where]!==undefined)window.turnstile.reset(widgetIds[where]);}
 async function ensureSession(){
   const {data}=await db.auth.getSession();if(data.session)return data.session;
-  if(!tokens.submit)throw new Error('人間確認を完了してから検索・投稿してください。');
+  if(!tokens.submit){$('#captcha-submit').scrollIntoView({block:'center'});throw new Error('人間確認を完了してから検索・投稿してください。');}
   const result=await db.auth.signInAnonymously({options:{captchaToken:tokens.submit}});resetCaptcha('submit');if(result.error)throw result.error;return result.data.session;
 }
 function openSubmission(){ $('#submit-dialog').showModal();captcha('submit').catch(e=>setStatus('#submit-status',e.message)); }
@@ -95,7 +95,7 @@ $('#photo').addEventListener('change',()=>{
 form.addEventListener('submit',e=>{e.preventDefault();busy(form.querySelector('[type=submit]'),async()=>{
  await photoProcessing;if(photos.some(x=>x.error))throw new Error('読み込めない写真を削除するか、選び直してください。');
  const formData=new FormData(form),d=Object.fromEntries(formData);d.purposes=expandPurposes(formData.getAll('purposes'));d.purpose_note=d.purpose_note.trim();d.photo_confirmed=!!d.photo_confirmed;d.photo_paths=[];d.photo_path='';if(photos.length&&!d.photo_confirmed)throw new Error('写真の確認事項に同意してください。');
- d.lat=d.lat===''?NaN:Number(d.lat);d.lng=d.lng===''?NaN:Number(d.lng);d.budget_yen=d.budget_yen===''?null:Number(d.budget_yen);d.menu_price_yen=d.menu_price_yen===''?null:Number(d.menu_price_yen);d.recommended_menu=d.recommended_menu.trim();d.highlight=d.highlight.trim();d.confirmed=!!d.confirmed;d.google_maps_url=d.google_maps_url.trim();d.official_url=d.official_url.trim();validateSubmission(d);delete d.website;
+ d.lat=d.lat===''?NaN:Number(d.lat);d.lng=d.lng===''?NaN:Number(d.lng);d.budget_yen=d.budget_yen===''?null:Number(d.budget_yen);d.menu_price_yen=d.menu_price_yen===''?null:Number(d.menu_price_yen);d.recommended_menu=d.recommended_menu.trim();d.highlight=d.highlight.trim();d.confirmed=!!d.confirmed;d.google_maps_url=d.google_maps_url.trim();d.official_url=d.official_url.trim();d.source_url=d.source_url.trim();if(!d.source_url)d.source_kind='field';validateSubmission(d);delete d.website;
  if(demo){d.photo_paths=photos.map(()=>crypto.randomUUID()+'.jpg');d.photo_path=d.photo_paths[0]||'';d._demo_photo_urls=photos.map(x=>URL.createObjectURL(x.blob));pending.push({...d,id:crypto.randomUUID(),status:'pending',created_at:new Date().toISOString()});}
  else{await ensureSession();for(let i=0;i<photos.length;i++){const photo=photos[i];
   if(photo.path&&Date.now()-photo.reservedAt>3500000){photo.path=null;photo.uploaded=false;}

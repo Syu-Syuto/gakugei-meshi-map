@@ -1,3 +1,4 @@
+import {publicRestaurants,visibilityLabel,visibilityAction,filterManagedRestaurants} from './visibility.js?v=7';
 import {preparePhoto,MAX_PHOTOS} from './photos.js?v=form-6';
 import {config} from '../config.js';
 import {parseGoogleUrl,validateSubmission,filterRestaurants,demoRestaurants,safeSource,travelLabel,budgetLabel,PARKING_LABELS,restaurantLinks,expandPurposes} from './core.js?v=form-6';
@@ -6,6 +7,9 @@ const demo=!config.supabaseUrl || !config.supabasePublishableKey;
 let photos=[],photoProcessing=Promise.resolve(),photoBusy=false;
 let db,rows=[],pending=[],map,markers,pickedMarker,selectedId,picking=false,session,widgetIds={},tokens={};
 const form=$('#submission-form');
+let managedRows=[],adminView='pending';
+const demoVisibility=new Map();
+function allDemoRestaurants(){return [...demoRestaurants,...pending.filter(p=>p.status==='approved').map(p=>({...p,id:p.id+'-published'}))].map(r=>({...r,is_published:demoVisibility.get(r.id)??true}));}
 const setStatus=(id,message)=>$(id).textContent=message;
 const busy=async(button,fn,status)=>{button.disabled=true;try{await fn();}catch(e){setStatus(status,e.message||'処理に失敗しました。再度お試しください。');}finally{button.disabled=false;}};
 function externalLink(url,text){const a=el('a',text);a.href=url;a.target='_blank';a.rel='noopener noreferrer';return a;}
@@ -70,7 +74,7 @@ function appendRecommendation(container,r){
 function showDetail(r){selectedId=r.id;render();map?.panTo([r.lat,r.lng]);$('#detail-title').textContent=r.name;const c=$('#detail-content');c.replaceChildren();c.append(el('p',`${r.genre} · ${budgetLabel(r)} · ${travelLabel(r,$('#travel').value)}`),el('p',r.address||''),el('p',PARKING_LABELS[r.bicycle_parking??'unknown']+(r.parking_note?'：'+r.parking_note:'')),el('p',r.source_note||''));appendPurposes(c,r);appendRecommendation(c,r);appendPhoto(c,r);const links=el('nav',undefined,'store-links');links.setAttribute('aria-label','店舗の外部リンク');for(const link of restaurantLinks(r))links.append(externalLink(link.url,link.label+' ↗'));c.append(links);if(!r.google_maps_url)c.append(el('p','Googleマップの店舗URLは未登録のため、店名で検索します。','help'));if(r.source_url){try{safeSource(r.source_url,r.source_kind);c.append(externalLink(r.source_url,'掲載情報の出典 ↗'));}catch{}}if(r.route_note)c.append(el('p','歩行経路の確認：'+r.route_note,'help'));$('#detail-dialog').showModal();}
 ['search','genre','price','travel','distance','purpose','parking','sort'].forEach(k=>$('#'+k).addEventListener(k==='search'?'input':'change',render));
 $('#reset').onclick=()=>{$('#search').value='';$('#genre').value='';$('#price').value='';$('#distance').value='';$('#travel').value='walk';$('#parking').value='';$('#purpose').value='';updateTravelHelp();$('#sort').value='distance';render();};
-async function load(){if(demo){rows=[...demoRestaurants,...pending.filter(p=>p.status==='approved').map(p=>({...p,id:p.id+'-published'}))];}else{const result=await db.from('restaurants').select('*').order('walk_m');if(result.error)throw result.error;rows=result.data;}render();}
+async function load(){if(demo){rows=publicRestaurants(allDemoRestaurants());}else{const result=await db.from('restaurants').select('*').eq('is_published',true).order('walk_m');if(result.error)throw result.error;rows=publicRestaurants(result.data);}if(selectedId&&!rows.some(r=>r.id===selectedId)){$('#detail-dialog').close();$('#detail-content').replaceChildren();selectedId=null;}render();}
 $('#google-url').addEventListener('change',()=>{try{if($('#google-url').value)parseGoogleUrl($('#google-url').value);setStatus('#url-status','リンクを確認しました。店名は下の欄へご自身で入力してください。');}catch{setStatus('#url-status','Googleマップの共有URLを貼ってください。Appleの「マップ」のリンクには対応していません。');}});
 $('#find-candidates').onclick=e=>busy(e.currentTarget,async()=>{
   const query=form.elements.name.value.trim();if(query.length<2)throw new Error('店名を2文字以上入力してください。');
@@ -120,12 +124,41 @@ async function showQueue(){
     review.onsubmit=e=>{e.preventDefault();busy(approve,async()=>{await moderate(item.id,true,Number(route.value),note.value);await showQueue();await load();},'#admin-status');};
     reject.onclick=()=>busy(reject,async()=>{if(!reason.value.trim())throw new Error('却下理由を入力してください。');await moderate(item.id,false,null,reason.value);await showQueue();},'#admin-status');
   }
+  await refreshManagedRestaurants();
 }
 async function moderate(id,approve,walk_m,note){if(demo){const p=pending.find(p=>p.id===id);if(p.status!=='pending')throw new Error('処理済みです。');p.status=approve?'approved':'rejected';p.walk_m=walk_m;p.route_note=note;}else{const {error}=await db.rpc('moderate_submission',{submission_id:id,approve,walk_m,review_note:note});if(error)throw error;}setStatus('#admin-status',approve?'店舗を公開しました。':'投稿を却下しました。');}
 $('#open-admin').onclick=async()=>{$('#admin-dialog').showModal();try{if(demo){setStatus('#admin-status','デモ用の審査画面です。実際の管理者権限はSupabase側で検証します。');await showQueue();}else{await captcha('admin');if(await adminCheck())await showQueue();}}catch(e){setStatus('#admin-status',e.message);}};
 $('#login-form').onsubmit=e=>{e.preventDefault();busy(e.submitter,async()=>{if(!tokens.admin)throw new Error('人間確認を完了してください。');const f=new FormData(e.target);const {error}=await db.auth.signInWithPassword({email:f.get('email'),password:f.get('password'),options:{captchaToken:tokens.admin}});resetCaptcha('admin');if(error)throw error;e.target.reset();await showQueue();},'#admin-status');};
-$('#logout').onclick=async()=>{if(!demo)await db.auth.signOut();$('#admin-tools').hidden=true;$('#login-form').hidden=false;setStatus('#admin-status','ログアウトしました。');};
-$('#refresh-queue').onclick=e=>busy(e.currentTarget,showQueue,'#admin-status');
+$('#logout').onclick=async()=>{if(!demo)await db.auth.signOut();managedRows=[];$('#queue').replaceChildren();$('#managed-restaurants').replaceChildren();$('#detail-dialog').close();$('#detail-content').replaceChildren();$('#admin-tools').hidden=true;$('#login-form').hidden=false;await load();setStatus('#admin-status','ログアウトしました。');};
+$('#refresh-queue').onclick=e=>busy(e.currentTarget,async()=>{await showQueue();await load();},'#admin-status');
+function selectAdminView(view){adminView=view;$('#pending-panel').hidden=view!=='pending';$('#registered-panel').hidden=view!=='registered';$('#view-pending').setAttribute('aria-pressed',String(view==='pending'));$('#view-registered').setAttribute('aria-pressed',String(view==='registered'));}
+$('#view-pending').onclick=()=>selectAdminView('pending');
+$('#view-registered').onclick=()=>selectAdminView('registered');
+async function refreshManagedRestaurants(){
+ if(demo){managedRows=allDemoRestaurants();}else{const {data,error}=await db.from('restaurants').select('*').order('name');if(error)throw error;managedRows=data;}
+ renderManagedRestaurants();selectAdminView(adminView);
+}
+function renderManagedRestaurants(){
+ const container=$('#managed-restaurants');container.replaceChildren();const shown=filterManagedRestaurants(managedRows,$('#managed-state').value,$('#managed-search').value);
+ setStatus('#managed-count',`${shown.length}件（公開中 ${managedRows.filter(r=>r.is_published).length}件・非公開 ${managedRows.filter(r=>!r.is_published).length}件）`);
+ if(!shown.length){container.append(el('p',managedRows.length?'条件に合う店舗はありません。':'登録済みの店舗はまだありません。','empty'));return;}
+ for(const r of shown){
+  const box=el('article',undefined,'managed-restaurant'),heading=el('div',undefined,'managed-heading');heading.append(el('h4',r.name),el('span',visibilityLabel(r),r.is_published?'visibility-public':'visibility-hidden'));box.append(heading,el('p',`${r.genre} · ${budgetLabel(r)}`),el('p',r.address||'住所未登録'));
+  const actions=el('div',undefined,'managed-actions'),details=el('button','店舗の内容を確認','quiet'),toggle=el('button',visibilityAction(r),'outline');details.type=toggle.type='button';details.onclick=()=>showDetail(r);toggle.setAttribute('aria-label',r.name+'を'+visibilityAction(r));
+  const confirmation=el('div',undefined,'visibility-confirmation');confirmation.hidden=true;const explain=el('p'),apply=el('button','変更する','primary'),cancel=el('button','キャンセル','quiet');apply.type=cancel.type='button';confirmation.append(explain,apply,cancel);
+  toggle.onclick=()=>{explain.textContent=r.is_published?`${r.name}を非公開にしますか？ 一覧・地図・店舗データから表示を外します。発行済みの写真リンクは最長5分残る場合があります。`:`${r.name}を再公開しますか？ 店舗情報と写真が再び一般公開されます。`;confirmation.hidden=false;toggle.hidden=true;apply.focus();};
+  cancel.onclick=()=>{confirmation.hidden=true;toggle.hidden=false;toggle.focus();};
+  apply.onclick=()=>busy(apply,async()=>{
+   cancel.disabled=true;toggle.disabled=true;try{const target=!r.is_published;
+    if(demo){demoVisibility.set(r.id,target);}else{const {error}=await db.rpc('set_restaurant_visibility',{restaurant_id:r.id,published:target,expected_published:r.is_published});if(error)throw error;}
+    await load();await refreshManagedRestaurants();setStatus('#admin-status',r.name+(target?'を再公開しました。':'を非公開にしました。'));$('#admin-status').scrollIntoView({block:'nearest'});
+   }finally{cancel.disabled=false;toggle.disabled=false;}
+  },'#admin-status');
+  actions.append(details,toggle);box.append(actions,confirmation);container.append(box);
+ }
+}
+$('#managed-search').oninput=renderManagedRestaurants;
+$('#managed-state').onchange=renderManagedRestaurants;
 function showPasswordRecovery(){
   $('#login-form').hidden=true;$('#admin-tools').hidden=true;
   let recovery=$('#password-recovery');if(recovery)return;

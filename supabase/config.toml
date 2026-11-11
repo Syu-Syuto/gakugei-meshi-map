@@ -1,0 +1,5 @@
+project_id = "gakugei-meshi"
+
+[functions.osm-candidates]
+# Manual getUser verification supports publishable keys and anonymous users.
+verify_jwt = false

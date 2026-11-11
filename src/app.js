@@ -112,9 +112,19 @@ $('#open-admin').onclick=async()=>{$('#admin-dialog').showModal();try{if(demo){s
 $('#login-form').onsubmit=e=>{e.preventDefault();busy(e.submitter,async()=>{if(!tokens.admin)throw new Error('人間確認を完了してください。');const f=new FormData(e.target);const {error}=await db.auth.signInWithPassword({email:f.get('email'),password:f.get('password'),options:{captchaToken:tokens.admin}});resetCaptcha('admin');if(error)throw error;e.target.reset();await showQueue();},'#admin-status');};
 $('#logout').onclick=async()=>{if(!demo)await db.auth.signOut();$('#admin-tools').hidden=true;$('#login-form').hidden=false;setStatus('#admin-status','ログアウトしました。');};
 $('#refresh-queue').onclick=e=>busy(e.currentTarget,showQueue,'#admin-status');
+function showPasswordRecovery(){
+  $('#login-form').hidden=true;$('#admin-tools').hidden=true;
+  let recovery=$('#password-recovery');if(recovery)return;
+  recovery=el('form');recovery.id='password-recovery';
+  const label=el('label','新しい管理用パスワード');const password=el('input');password.type='password';password.required=true;password.minLength=12;password.autocomplete='new-password';label.append(password);
+  const confirmLabel=el('label','もう一度入力');const confirmation=el('input');confirmation.type='password';confirmation.required=true;confirmation.autocomplete='new-password';confirmLabel.append(confirmation);
+  const save=el('button','パスワードを保存','primary');save.type='submit';recovery.append(el('p','12文字以上のパスワードを設定し、安全な場所に保存してください。'),label,confirmLabel,save);$('#admin-status').before(recovery);
+  recovery.onsubmit=e=>{e.preventDefault();busy(save,async()=>{if(password.value!==confirmation.value)throw new Error('パスワードが一致していません。');const {error}=await db.auth.updateUser({password:password.value});if(error)throw error;recovery.reset();recovery.remove();setStatus('#admin-status','パスワードを更新しました。');await showQueue();},'#admin-status');};
+  if(!$('#admin-dialog').open)$('#admin-dialog').showModal();setStatus('#admin-status','メールの本人確認が完了しました。新しいパスワードを設定してください。');
+}
 async function start(){
   setStatus('#mode',demo?'動作確認用のサンプルを表示しています。実在するお店ではありません。':'追加されたお店は、内容を確認してから掲載します。');
-  initMap();if(!demo){const {createClient}=await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');db=createClient(config.supabaseUrl,config.supabasePublishableKey);}
+  initMap();if(!demo){const {createClient}=await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');db=createClient(config.supabaseUrl,config.supabasePublishableKey);db.auth.onAuthStateChange(event=>{if(event==='PASSWORD_RECOVERY')showPasswordRecovery();});}
   await load();
 }
 start().catch(e=>{setStatus('#mode','読み込みに失敗しました：'+e.message);$('#results').append(el('p','接続設定と通信状態を確認してください。','empty'));});

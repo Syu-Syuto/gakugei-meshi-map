@@ -20,7 +20,7 @@ test('情報源URLはGoogle転載と危険なスキームを拒否',()=>{
  assert.equal(safeSource('https://www.openstreetmap.org/node/123','osm'),'https://www.openstreetmap.org/node/123');
  assert.throws(()=>safeSource('https://www.openstreetmap.org.evil.example/node/123','osm'));
 });
-const valid={name:'テスト店',genre:'定食',lat:35.704,lng:139.49,budget_yen:null,bicycle_parking:'unknown',parking_note:'',source_kind:'field',source_url:'',source_note:'現地で確認しました',confirmed:true};
+const valid={purposes:['普段の食事'],name:'テスト店',genre:'定食',lat:35.704,lng:139.49,budget_yen:null,bicycle_parking:'unknown',parking_note:'',source_kind:'field',source_url:'',source_note:'現地で確認しました',confirmed:true};
 test('投稿は住所・緯度・経度なしでも審査へ送れる。片方だけの座標は拒否する',()=>{
  const noLocation={...valid,address:''};delete noLocation.lat;delete noLocation.lng;
  assert.doesNotThrow(()=>validateSubmission(noLocation));
@@ -84,8 +84,8 @@ test('打ち上げ・新歓で絞り込める。複数目的はそれぞれ一�
  assert.deepEqual(filterRestaurants(demoRestaurants,{purpose:'新歓',distance:'25'}).map(r=>r.id),['demo-2']);
  assert.deepEqual(filterRestaurants(demoRestaurants,{purpose:'打ち上げ',distance:'25'}).map(r=>r.id),['demo-2','demo-4']);
  assert.equal(filterRestaurants(demoRestaurants,{purpose:'新歓',parking:'yes',distance:'25'}).length,0);
- for(const purposes of [['打ち上げ','新歓'],[]])assert.doesNotThrow(()=>validateSubmission({...valid,purposes}));
- for(const purposes of [['その他'],['新歓','新歓'],'新歓'])assert.throws(()=>validateSubmission({...valid,purposes}));
+ for(const purposes of [['打ち上げ','新歓']])assert.doesNotThrow(()=>validateSubmission({...valid,purposes}));
+ for(const purposes of [[],['その他'],['新歓','新歓'],'新歓'])assert.throws(()=>validateSubmission({...valid,purposes}));
 });
 test('写真の形式と容量、写真の掲載確認を検証する',()=>{
  assert.doesNotThrow(()=>validatePhotoFile({type:'image/jpeg',size:1024}));

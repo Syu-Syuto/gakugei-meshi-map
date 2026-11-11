@@ -1,0 +1,7 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {locationRequest,parseLocationResponse,hasMapLocation} from '../src/workflow-core.js';
+import {validateSubmission} from '../src/core.js';
+test('依頼文は投稿内容と正門を含み、返答をJSON3項目に限定する',()=>{const s=locationRequest({name:'淡淡',address:'国分寺市'});assert.match(s,/淡淡/);assert.match(s,/正門/);assert.match(s,/直線距離/);assert.match(s,/未検証/);assert.match(s,/null/);});
+test('JSONの一括取り込みは3数値だけを受け入れ、無関係な項目を取り込まない',()=>{assert.deepEqual(parseLocationResponse('{"lat":35.7,"lng":139.49,"walk_m":1080,"status":"approved"}'),{lat:35.7,lng:139.49,walk_m:1080});assert.deepEqual(parseLocationResponse('{"lat":null,"lng":null,"walk_m":null}'),{lat:null,lng:null,walk_m:null});for(const d of [{lat:35.7,lng:null,walk_m:100},{lat:36,lng:139.49,walk_m:100},{lat:'35.7',lng:139.49,walk_m:100},{lat:null,lng:null,walk_m:1.2},{lat:null,lng:null,walk_m:3000}])assert.throws(()=>parseLocationResponse(JSON.stringify(d)));assert.throws(()=>parseLocationResponse('説明文だけ'));});
+test('目的は必須、その他の目的は説明必須、未確認位置をマーカーにしない',()=>{const d={name:'店',genre:'定食',budget_yen:null,bicycle_parking:'unknown',parking_note:'',source_kind:'field',source_url:'',source_note:'',confirmed:true,purposes:['その他'],purpose_other:'ゼミの集まり'};assert.doesNotThrow(()=>validateSubmission(d));assert.throws(()=>validateSubmission({...d,purposes:[]}));assert.throws(()=>validateSubmission({...d,purpose_other:''}));assert.equal(hasMapLocation({lat:null,lng:null}),false);assert.equal(hasMapLocation({lat:35.7,lng:139.49}),true);});

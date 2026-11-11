@@ -1,6 +1,6 @@
 export const GENRES = ['定食', 'ラーメン', 'うどん・そば', 'カレー', '和食', '寿司・海鮮', '中華', '韓国料理', '洋食', 'イタリアン', '焼肉・肉料理', '居酒屋', 'カフェ', 'パン・サンドイッチ', 'ファストフード', 'スイーツ', 'アジア・エスニック', 'その他'];
 export const BUDGETS = [500,700,1000,1500,2000];
-export const PURPOSES = ['普段の食事','打ち上げ','新歓','少人数の集まり'];
+export const PURPOSES = ['普段の食事','打ち上げ','新歓','少人数の集まり','その他'];
 export const PARKING_LABELS = {yes:'駐輪可',no:'駐輪不可',unknown:'駐輪情報なし'};
 // Bicycle figures are a comparison estimate, NOT a verified cycling route.
 export function travelMinutes(r, mode='walk') {return Number.isFinite(r.walk_m)&&r.walk_m>0?Math.ceil(r.walk_m/(mode==='bicycle'?200:80)):null;}
@@ -53,7 +53,9 @@ export function validateSubmission(d) {
   if(d.official_url)safeHomepage(d.official_url);
   for(const [key,max] of [['recommended_menu',100],['highlight',100]])if(d[key]!=null&&(typeof d[key]!=='string'||d[key].length>max))throw new Error('おすすめメニューと推しポイントは100文字以内で入力してください。');
   if(d.menu_price_yen!=null&&(!Number.isInteger(d.menu_price_yen)||d.menu_price_yen<0||d.menu_price_yen>100000||!d.recommended_menu?.trim()))throw new Error('メニューの値段はメニュー名と一緒に0〜100,000円の整数で入力してください。');
-  if(d.purposes!=null&&(!Array.isArray(d.purposes)||d.purposes.length>4||new Set(d.purposes).size!==d.purposes.length||d.purposes.some(x=>!PURPOSES.includes(x))))throw new Error('目的は選択肢から選んでください。');
+  if(!Array.isArray(d.purposes)||d.purposes.length===0)throw new Error('向いている目的を1つ以上選んでください。');
+  if(d.purposes?.includes('その他')&&(!d.purpose_other?.trim()||d.purpose_other.length>250))throw new Error('その他の目的を250文字以内で入力してください。');
+  if(d.purposes!=null&&(!Array.isArray(d.purposes)||d.purposes.length>5||new Set(d.purposes).size!==d.purposes.length||d.purposes.some(x=>!PURPOSES.includes(x))))throw new Error('目的は選択肢から選んでください。');
   if(d.purpose_note!=null&&(typeof d.purpose_note!=='string'||d.purpose_note.length>250))throw new Error('目的の補足は250文字以内で入力してください。');
   if(d.photo_path&&(!/^[0-9a-f-]{36}\.jpg$/.test(d.photo_path)||d.photo_confirmed!==true))throw new Error('写真の確認事項に同意してください。');
   const paths=d.photo_paths??(d.photo_path?[d.photo_path]:[]);
@@ -64,7 +66,7 @@ function matchesTime(r,f){if(!f.distance)return true;const n=travelMinutes(r,f.t
 export function expandPurposes(values){return [...new Set(values.flatMap(x=>x==='打ち上げ・新歓'?['打ち上げ','新歓']:[x]))];}
 export function filterRestaurants(rows, f) {
   const q=(f.search||'').normalize('NFKC').toLowerCase().trim();
-  return rows.filter(r=>(r.name+r.genre).normalize('NFKC').toLowerCase().includes(q)&&(!f.genre||r.genre===f.genre)&&(!f.price||r.budget_yen===Number(f.price))&&(!f.purpose||r.purposes?.includes(f.purpose))&&(!f.parking||r.bicycle_parking===f.parking)&&matchesTime(r,f)).sort((a,b)=>f.sort==='price'?(a.budget_yen??Infinity)-(b.budget_yen??Infinity):a.walk_m-b.walk_m);
+  return rows.filter(r=>(r.name+r.genre).normalize('NFKC').toLowerCase().includes(q)&&(!f.genre||r.genre===f.genre)&&(!f.price||r.budget_yen===Number(f.price))&&(!f.purpose||r.purposes?.includes(f.purpose))&&(!f.parking||r.bicycle_parking===f.parking)&&matchesTime(r,f)).sort((a,b)=>f.sort==='price'?(a.budget_yen??Infinity)-(b.budget_yen??Infinity):(a.walk_m??Infinity)-(b.walk_m??Infinity));
 }
 export const demoRestaurants = [
   {id:'demo-1',purposes:['普段の食事','少人数の集まり'],purpose_note:'2〜4人での食事（架空の設定）',recommended_menu:'から揚げ定食（表示例）',menu_price_yen:700,highlight:'ごはん大盛り無料（架空の設定）',name:'サンプル食堂 けやき',genre:'定食',budget_yen:700,bicycle_parking:'yes',parking_note:'店舗前に駐輪スペース（架空の設定）',lat:35.7035,lng:139.492,walk_m:560,address:'架空の店舗・デモデータ',source_kind:'field',source_note:'動作確認用の架空店舗です。実在しません。'},

@@ -17,7 +17,7 @@ grant usage on schema storage to anon,authenticated;
 grant select,insert,update,delete on storage.objects to anon,authenticated;`);
 await db.exec(await readFile(new URL('../supabase/migrations/001_mvp.sql',import.meta.url),'utf8'));
 await db.exec(await readFile(new URL('../supabase/migrations/002_budget_and_parking.sql',import.meta.url),'utf8'));
-for(const file of ['003_store_links.sql','004_recommendation.sql','005_purposes_and_photos.sql','006_simpler_submissions.sql','007_restaurant_visibility.sql'])await db.exec(await readFile(new URL('../supabase/migrations/'+file,import.meta.url),'utf8'));
+for(const file of ['003_store_links.sql','004_recommendation.sql','005_purposes_and_photos.sql','006_simpler_submissions.sql','007_restaurant_visibility.sql','008_location_at_approval.sql'])await db.exec(await readFile(new URL('../supabase/migrations/'+file,import.meta.url),'utf8'));
 console.log('PASS migration compiles');
 await db.exec(`insert into public.admins values ('10000000-0000-0000-0000-000000000003');`);
 async function identity(n,anonymous=true){await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false),set_config('request.jwt.claims',$2,false)",[n?`10000000-0000-0000-0000-00000000000${n}`:'',JSON.stringify({is_anonymous:anonymous})]);await db.exec(`set role ${n?'authenticated':'anon'}`);}
@@ -85,4 +85,18 @@ const events=(await db.query('select is_published from public.restaurant_visibil
 await denied('select public.set_restaurant_visibility($1,false,false)',[published.id],/変更されています/);
 await identity(null);const restored=(await db.query('select * from public.restaurants where id=$1',[published.id])).rows[0];assert.equal(restored.name,published.name);assert.deepEqual(restored.photo_paths,paths);assert.equal(restored.submitter_gender,published.submitter_gender);assert.equal((await db.query('select * from storage.objects where name=any($1)',[paths])).rows.length,5);assert.equal((await db.query('select id from public.reviews where restaurant_id=$1',[published.id])).rows.length,1);
 console.log('PASS admin-only reversible visibility, private audit events, stale-state protection and restore without data loss');
+await db.exec('reset role');await db.exec("update public.submissions set created_at=now()-interval '2 minutes' where submitter_id='10000000-0000-0000-0000-000000000001'");
+const noLocation={...p,name:'場所未確定テスト',address:'',photo_path:'',photo_confirmed:false};delete noLocation.lat;delete noLocation.lng;
+await identity(1);const noLocationId=(await db.query('select public.submit_restaurant($1) id',[noLocation])).rows[0].id;
+assert.equal((await db.query('select payload from public.submissions where id=$1',[noLocationId])).rows[0].payload.lat,null);
+await denied('select public.moderate_submission($1,true,500,$2,35.701,139.491)',[noLocationId,'独立情報源と照合した経路のテスト'],/管理者/);
+await identity(3,false);await denied('select public.moderate_submission($1,true,500,$2)',[noLocationId,'独立情報源と照合した経路のテスト'],/緯度/);
+await denied('select public.moderate_submission($1,true,500,$2,null,null)',[noLocationId,'独立情報源と照合した経路のテスト'],/緯度/);
+await denied('select public.moderate_submission($1,true,500,$2,36,140)',[noLocationId,'独立情報源と照合した経路のテスト'],/緯度/);
+const locatedId=(await db.query('select public.moderate_submission($1,true,500,$2,35.701,139.491) id',[noLocationId,'独立情報源と照合した経路のテスト'])).rows[0].id;
+await identity(null);const located=(await db.query('select lat,lng from public.restaurants where id=$1',[locatedId])).rows[0];assert.equal(located.lat,35.701);assert.equal(located.lng,139.491);
+await db.exec('reset role');await db.exec("update public.submissions set created_at=now()-interval '2 minutes' where id='"+noLocationId+"'");await identity(1);
+const rejectId=(await db.query('select public.submit_restaurant($1) id',[{...noLocation,name:'位置なし却下テスト'}])).rows[0].id;
+await identity(3,false);await db.query('select public.moderate_submission($1,false,null,$2,null,null)',[rejectId,'対象外のため却下']);
+console.log('PASS coordinate-free/address-free submission, admin-only final coordinates, missing/out-of-range approval rejection and rejection without coordinates');
 await db.close();

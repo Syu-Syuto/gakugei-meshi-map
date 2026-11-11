@@ -21,6 +21,12 @@ test('情報源URLはGoogle転載と危険なスキームを拒否',()=>{
  assert.throws(()=>safeSource('https://www.openstreetmap.org.evil.example/node/123','osm'));
 });
 const valid={name:'テスト店',genre:'定食',lat:35.704,lng:139.49,budget_yen:null,bicycle_parking:'unknown',parking_note:'',source_kind:'field',source_url:'',source_note:'現地で確認しました',confirmed:true};
+test('投稿は住所・緯度・経度なしでも審査へ送れる。片方だけの座標は拒否する',()=>{
+ const noLocation={...valid,address:''};delete noLocation.lat;delete noLocation.lng;
+ assert.doesNotThrow(()=>validateSubmission(noLocation));
+ assert.doesNotThrow(()=>validateSubmission({...noLocation,lat:null,lng:null}));
+ assert.throws(()=>validateSubmission({...noLocation,lat:35.7}));
+});
 test('手入力の確認は必要。備考・出典URLは任意。範囲外・不正な予算を拒否',()=>{
  assert.equal(validateSubmission({...valid}).name,'テスト店');
  assert.doesNotThrow(()=>validateSubmission({...valid,source_note:'',source_url:''}));

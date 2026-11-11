@@ -43,7 +43,7 @@ export function validateSubmission(d) {
   if(!d.confirmed) throw new Error('内容確認のチェックが必要です。');
   if(d.website) throw new Error('投稿を受け付けられませんでした。');
   if(!d.name?.trim() || d.name.length>100 || !GENRES.includes(d.genre)) throw new Error('店名・ジャンルを確認してください。');
-  if(!Number.isFinite(d.lat)||!Number.isFinite(d.lng)||d.lat<35.67||d.lat>35.74||d.lng<139.45||d.lng>139.53) throw new Error('小金井キャンパス周辺の場所を指定してください。');
+  if((d.lat!=null||d.lng!=null)&&(!Number.isFinite(d.lat)||!Number.isFinite(d.lng)||d.lat<35.67||d.lat>35.74||d.lng<139.45||d.lng>139.53)) throw new Error('位置情報がある場合は小金井キャンパス周辺の緯度・経度を確認してください。');
   if(d.budget_yen!==null && !BUDGETS.includes(d.budget_yen)) throw new Error('予算は選択肢から選んでください。');
   if(!Object.hasOwn(PARKING_LABELS,d.bicycle_parking)||typeof d.parking_note!=='string'||d.parking_note.length>250) throw new Error('駐輪情報を確認してください。');
   if(!['field','official','osm'].includes(d.source_kind)||typeof d.source_note!=='string'||d.source_note.length>1000)throw new Error('備考は1,000文字以内で入力してください。');

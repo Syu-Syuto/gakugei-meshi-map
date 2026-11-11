@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {validatePhotoFile} from '../src/photos.js';
-import {parseGoogleUrl,validateSubmission,filterRestaurants,demoRestaurants,safeSource,travelMinutes,travelLabel,budgetLabel,restaurantLinks,safeHomepage} from '../src/core.js';
+import {parseGoogleUrl,validateSubmission,filterRestaurants,demoRestaurants,safeSource,travelMinutes,travelLabel,budgetLabel,restaurantLinks,safeHomepage,expandPurposes,GENRES} from '../src/core.js';
 test('URLの店名はヒントのみ。座標を店舗データへ移さない',()=>{
  const p=parseGoogleUrl('https://www.google.com/maps/place/%E9%A3%9F%E5%A0%82+ABC/@35.7,139.49,16z');
  assert.deepEqual(p,{hint:'食堂 ABC',short:false});assert.equal('lat' in p,false);
@@ -21,9 +21,10 @@ test('情報源URLはGoogle転載と危険なスキームを拒否',()=>{
  assert.throws(()=>safeSource('https://www.openstreetmap.org.evil.example/node/123','osm'));
 });
 const valid={name:'テスト店',genre:'定食',lat:35.704,lng:139.49,budget_yen:null,bicycle_parking:'unknown',parking_note:'',source_kind:'field',source_url:'',source_note:'現地で確認しました',confirmed:true};
-test('手入力でも確認と独立情報源が必要。範囲外・不正な予算を拒否',()=>{
+test('手入力の確認は必要。備考・出典URLは任意。範囲外・不正な予算を拒否',()=>{
  assert.equal(validateSubmission({...valid}).name,'テスト店');
- for(const patch of [{confirmed:false},{lat:NaN},{lat:35.8},{lng:140},{budget_yen:800},{budget_yen:-1},{bicycle_parking:'maybe'},{parking_note:'a'.repeat(251)},{source_note:''},{source_kind:'google'},{source_kind:'official',source_url:''},{website:'spam'}])assert.throws(()=>validateSubmission({...valid,...patch}));
+ assert.doesNotThrow(()=>validateSubmission({...valid,source_note:'',source_url:''}));
+ for(const patch of [{confirmed:false},{lat:NaN},{lat:35.8},{lng:140},{budget_yen:800},{budget_yen:-1},{bicycle_parking:'maybe'},{parking_note:'a'.repeat(251)},{source_note:'a'.repeat(1001)},{source_kind:'google'},{website:'spam'}])assert.throws(()=>validateSubmission({...valid,...patch}));
 });
 test('店名・ジャンル・価格・実歩行距離を併用して検索',()=>{
  assert.equal(filterRestaurants(demoRestaurants,{search:'サンプル',genre:'定食',price:'700',distance:'10'}).length,1);
@@ -82,7 +83,34 @@ test('打ち上げ・新歓で絞り込める。複数目的はそれぞれ一�
 });
 test('写真の形式と容量、写真の掲載確認を検証する',()=>{
  assert.doesNotThrow(()=>validatePhotoFile({type:'image/jpeg',size:1024}));
- for(const file of [{type:'image/svg+xml',size:10},{type:'image/heic',size:10},{type:'image/jpeg',size:0},{type:'image/png',size:11*1024*1024}])assert.throws(()=>validatePhotoFile(file));
+ for(const file of [{type:'image/svg+xml',size:10},{type:'image/jpeg',size:0},{type:'image/png',size:11*1024*1024}])assert.throws(()=>validatePhotoFile(file));
  assert.throws(()=>validateSubmission({...valid,photo_path:'../../bad.jpg',photo_confirmed:true}));
  assert.throws(()=>validateSubmission({...valid,photo_path:'10000000-0000-0000-0000-000000000001.jpg',photo_confirmed:false}));
+});
+
+test('時間の指定なしは未確認も含む。30分以上は下限で絞り込む',()=>{
+ const rows=[{...demoRestaurants[0],id:'short',walk_m:400},{...demoRestaurants[0],id:'long',walk_m:2400},{...demoRestaurants[0],id:'unknown',walk_m:null}];
+ assert.equal(filterRestaurants(rows,{distance:''}).length,3);
+ assert.deepEqual(filterRestaurants(rows,{distance:'30+'}).map(x=>x.id),['long']);
+ assert.deepEqual(filterRestaurants(rows,{distance:'5'}).map(x=>x.id),['short']);
+ assert.equal(filterRestaurants(rows,{distance:'30+',travel:'bicycle'}).length,0);
+ assert.equal(travelLabel(rows[2]),'所要時間未確認');
+});
+test('新予算・ジャンル・任意の性別を受け付け、危険な値を拒否',()=>{
+ for(const genre of GENRES)assert.doesNotThrow(()=>validateSubmission({...valid,genre,budget_yen:500}));
+ assert.doesNotThrow(()=>validateSubmission({...valid,genre:'居酒屋',budget_yen:2000,submitter_gender:'female'}));
+ assert.equal(budgetLabel({budget_yen:2000}),'2,000円以上');
+ assert.throws(()=>validateSubmission({...valid,submitter_gender:'anything'}));
+});
+test('統合した投稿目的から既存の打ち上げ・新歓検索を両方使える',()=>{
+ const purposes=expandPurposes(['打ち上げ・新歓','少人数の集まり']);
+ const row={...demoRestaurants[0],purposes};
+ assert.equal(filterRestaurants([row],{purpose:'打ち上げ'}).length,1);
+ assert.equal(filterRestaurants([row],{purpose:'新歓'}).length,1);
+});
+test('HEICのMIMEなし・大文字拡張子と写真5枚を受け付ける。重複・6枚を拒否',()=>{
+ for(const file of [{type:'image/heic',size:10},{type:'',name:'IMG_1234.HEIC',size:10},{type:'image/heif',size:10}])assert.doesNotThrow(()=>validatePhotoFile(file));
+ const paths=Array.from({length:6},(_,i)=>`10000000-0000-0000-0000-00000000000${i}.jpg`);
+ assert.doesNotThrow(()=>validateSubmission({...valid,photo_paths:paths.slice(0,5),photo_confirmed:true}));
+ for(const photo_paths of [paths,[paths[0],paths[0]],['../../bad.jpg']])assert.throws(()=>validateSubmission({...valid,photo_paths,photo_confirmed:true}));
 });

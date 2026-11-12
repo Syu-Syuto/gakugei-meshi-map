@@ -33,3 +33,5 @@ dialog{background:var(--surface);border-color:#bac7b3;border-radius:12px;box-sha
 
 @media(min-width:1151px){.filters{grid-template-columns:minmax(160px,1fr) 112px 126px 270px 150px 106px auto}}
 .travel-filter{grid-template-columns:minmax(90px,.85fr) minmax(128px,1.2fr)}
+
+.duplicate-notice{border-left:3px solid #94512e;padding:12px;background:#f5eadd;margin:12px 0;color:#653b25;border-radius:0 8px 8px 0}.duplicate-notice button{margin-top:6px}.duplicate-notice .help{margin:5px 0}

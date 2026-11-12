@@ -1,4 +1,5 @@
-import {createAdminWorkflows} from './admin-workflows.js?v=9';
+import {matchingRestaurants} from './duplicates.js?v=10';
+import {createAdminWorkflows} from './admin-workflows.js?v=10';
 import {hasMapLocation} from './workflow-core.js';
 import {publicRestaurants,visibilityLabel,visibilityAction,filterManagedRestaurants} from './visibility.js?v=7';
 import {preparePhoto,MAX_PHOTOS} from './photos.js?v=form-6';
@@ -30,13 +31,20 @@ async function ensureSession(){
   if(!tokens.submit){$('#captcha-submit').scrollIntoView({block:'center'});throw new Error('人間確認を完了してから送信してください。');}
   const result=await db.auth.signInAnonymously({options:{captchaToken:tokens.submit}});resetCaptcha('submit');if(result.error)throw result.error;return result.data.session;
 }
-function openSubmission(target=null){
- if(contributionTarget?.id!==target?.id){form.reset();photos.forEach(x=>{if(x.url)URL.revokeObjectURL(x.url);});photos=[];renderPhotoPreviews();setStatus('#submit-status','');}
+function openSubmission(target=null,preserve=false){
+ if(!preserve&&contributionTarget?.id!==target?.id){form.reset();photos.forEach(x=>{if(x.url)URL.revokeObjectURL(x.url);});photos=[];renderPhotoPreviews();setStatus('#submit-status','');}
  contributionTarget=target;document.querySelectorAll('[data-new-only]').forEach(section=>{section.hidden=!!target;section.querySelectorAll('input,select,textarea').forEach(input=>input.disabled=!!target);});
  $('#submit-title').textContent=target?'このお店に情報を追加':'お店を追加する';$('#contribution-target').hidden=!target;$('#contribution-target').textContent=target?target.name:'';
  $('#submission-steps').textContent=target?'写真・費用・おすすめなど、分かる情報を教えてください。掲載前に管理者が確認します。':'店名・ジャンル・利用目的を入力してください。お店の場所は掲載前に管理者が確認します。';
- updateOtherPurpose();$('#submit-dialog').showModal();captcha('submit').catch(e=>setStatus('#submit-status',e.message));
+ updateOtherPurpose();updateDuplicateNotice();if(!$('#submit-dialog').open)$('#submit-dialog').showModal();captcha('submit').catch(e=>setStatus('#submit-status',e.message));
 }
+function updateDuplicateNotice(){
+ const input=form.elements.name,notice=$('#duplicate-notice');notice.replaceChildren();input.setCustomValidity('');
+ const matches=contributionTarget?[]:matchingRestaurants(input.value,rows);notice.hidden=!matches.length;
+ if(matches.length){const message='この店名は登録済みです。新規登録ではなく、既存のお店に情報を追加してください。';input.setCustomValidity(message);notice.append(el('p',message));for(const r of matches){const b=el('button','「'+r.name+'」に追加投稿する','outline');b.type='button';b.onclick=()=>openSubmission(r,true);notice.append(el('p',r.address||'住所未登録','help'),b);}}
+ return matches;
+}
+form.elements.name.addEventListener('input',updateDuplicateNotice);
 $('#open-submit').onclick=()=>openSubmission();$('#open-submit-bottom').onclick=()=>openSubmission();
 function updateOtherPurpose(){const selected=$('#purpose-other-check').checked;$('#purpose-other-label').hidden=!selected;$('#purpose-other').required=selected;}
 $('#purpose-other-check').onchange=updateOtherPurpose;
@@ -98,6 +106,7 @@ $('#photo').addEventListener('change',()=>{
  photoProcessing=(async()=>{try{for(const file of files){const photo={name:file.name};photos.push(photo);renderPhotoPreviews();try{photo.blob=await preparePhoto(file);photo.url=URL.createObjectURL(photo.blob);}catch(e){photo.error=e.message;}renderPhotoPreviews();}}finally{photoBusy=false;$('#photo').disabled=false;renderPhotoPreviews();}})();
 });
 form.addEventListener('submit',e=>{e.preventDefault();busy(form.querySelector('[type=submit]'),async()=>{
+ if(!contributionTarget){if(!demo){const result=await db.from('restaurants').select('*').eq('is_published',true);if(result.error)throw new Error('登録済み店舗の確認ができませんでした。入力を残しているので、通信状態を確認して再度お試しください。');rows=result.data;}if(updateDuplicateNotice().length){form.elements.name.scrollIntoView({block:'center'});throw new Error('登録済みの店舗です。表示されたボタンから追加投稿へ進んでください。');}}
  await photoProcessing;if(photos.some(x=>x.error))throw new Error('読み込めない写真を削除するか、選び直してください。');
  const formData=new FormData(form),d={...(contributionTarget||{}),...Object.fromEntries(formData)};if(contributionTarget)for(const key of ['name','genre','address','google_maps_url','official_url','source_url','source_kind','source_note','bicycle_parking','parking_note'])d[key]=contributionTarget[key]??'';d.target_restaurant_id=contributionTarget?.id||null;d.purposes=expandPurposes(formData.getAll('purposes'));d.purpose_note=d.purpose_note.trim();d.purpose_other=d.purposes.includes('その他')?d.purpose_other.trim():'';d.photo_confirmed=!!d.photo_confirmed;d.photo_paths=[];d.photo_path='';if(photos.length&&!d.photo_confirmed)throw new Error('写真の確認事項に同意してください。');
  d.budget_yen=d.budget_yen===''?null:Number(d.budget_yen);d.menu_price_yen=d.menu_price_yen===''?null:Number(d.menu_price_yen);d.recommended_menu=d.recommended_menu.trim();d.highlight=d.highlight.trim();d.confirmed=!!d.confirmed;d.google_maps_url=d.google_maps_url.trim();d.official_url=d.official_url.trim();d.source_url=d.source_url.trim();if(!d.source_url)d.source_kind='field';validateSubmission(d);delete d.website;
@@ -171,5 +180,5 @@ async function start(){
   initMap();if(!demo){const {createClient}=await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');db=createClient(config.supabaseUrl,config.supabasePublishableKey);db.auth.onAuthStateChange(event=>{if(event==='PASSWORD_RECOVERY')showPasswordRecovery();});}
   await load();
 }
-const workflows=createAdminWorkflows({getDb:()=>db,demo,refresh:async()=>{await showQueue();await load();},appendPhoto,appendRecommendation,getDemoExtras:r=>{const additions=pending.filter(p=>p.status==='approved'&&p.submission_kind==='addition'&&p.target_restaurant_id===r.id);if(!additions.length)return {groups:[],posts:[]};const posts=[r,...additions].map(p=>({...p,group_id:p.recommended_menu||null}));const groups=[...new Set(posts.map(p=>p.recommended_menu).filter(Boolean))].map(name=>({id:name,name,count:1}));return {groups,posts,has_managed_posts:true};},openAddition:r=>{$('#detail-dialog').close();openSubmission(r);}});
+const workflows=createAdminWorkflows({getDb:()=>db,demo,refresh:async()=>{await showQueue();await load();},appendPhoto,appendRecommendation,getDemoRestaurants:allDemoRestaurants,convertDemo:(item,target)=>{Object.assign(item,{submission_kind:'addition',target_restaurant_id:target.id,name:target.name,genre:target.genre,address:target.address});},getDemoExtras:r=>{const additions=pending.filter(p=>p.status==='approved'&&p.submission_kind==='addition'&&p.target_restaurant_id===r.id);if(!additions.length)return {groups:[],posts:[]};const posts=[r,...additions].map(p=>({...p,group_id:p.recommended_menu||null}));const groups=[...new Set(posts.map(p=>p.recommended_menu).filter(Boolean))].map(name=>({id:name,name,count:1}));return {groups,posts,has_managed_posts:true};},openAddition:r=>{$('#detail-dialog').close();openSubmission(r);}});
 start().catch(e=>{setStatus('#mode','読み込みに失敗しました：'+e.message);$('#results').append(el('p','接続設定と通信状態を確認してください。','empty'));});

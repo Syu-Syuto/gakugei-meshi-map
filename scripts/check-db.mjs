@@ -159,4 +159,28 @@ console.log('PASS post edit revision checks, menu regrouping, individual photo r
 await db.query('select public.set_restaurant_visibility($1,false,true)',[workflowRid]);await identity(null);ex=(await db.query('select public.restaurant_extras($1) e',[workflowRid])).rows[0].e;assert.equal(ex.posts.length,0);assert.equal((await db.query('select * from storage.objects where name=$1',[extraPath])).rows.length,0);
 console.log('PASS required purposes/other, three-click blank approval, reset on edit, reversible content edits, private additions/photos, count distinct authors, merge without losing posts and hidden-parent protection');
 
+
+// Upgrade an existing 009 database, including its existing approved/pending rows.
+await db.exec('reset role');await db.exec(await readFile(new URL('../supabase/migrations/010_duplicate_submissions.sql',import.meta.url),'utf8'));
+assert.equal((await db.query("select public.restaurant_name_key(' ＡＢＣ　食 堂・ ') k")).rows[0].k,'abc食堂');
+await db.exec("update public.submissions set created_at=now()-interval '2 days'");
+await identity(2);await denied('select public.submit_restaurant($1)',[{...p,name:' 権限テスト 架空店 ',photo_paths:[],photo_path:''}],/登録済み/);
+const conversionPath=(await db.query('select public.reserve_restaurant_photo() path')).rows[0].path;
+await db.query("insert into storage.objects(bucket_id,name,owner_id,metadata) values('restaurant-photos',$1,auth.uid()::text,$2)",[conversionPath,{mimetype:'image/jpeg',size:1000}]);
+const convertSid=(await db.query('select public.submit_restaurant($1) id',[{...p,name:'たんたん表記ゆれ',photo_paths:[conversionPath],photo_path:conversionPath}])).rows[0].id;
+await denied('select public.convert_submission_to_addition($1,$2)',[convertSid,live[0].id],/管理者/);
+await identity(null);await denied('select public.convert_submission_to_addition($1,$2)',[convertSid,live[0].id]);
+assert.equal((await db.query('select * from storage.objects where name=$1',[conversionPath])).rows.length,0);
+await identity(3,false);await denied('select public.convert_submission_to_addition($1,$2)',[id,live[0].id],/審査待ち/);
+await denied('select public.review_submission($1,true,$2)',[convertSid,{name:live[0].name}],/追加情報に切り替える/);
+await db.query('select public.convert_submission_to_addition($1,$2)',[convertSid,live[0].id]);
+let converted=(await db.query('select * from public.submissions where id=$1',[convertSid])).rows[0];assert.equal(converted.status,'pending');assert.equal(converted.submission_kind,'addition');assert.equal(converted.target_restaurant_id,live[0].id);assert.equal(converted.payload.name,live[0].name);assert.equal(converted.submitter_id,'10000000-0000-0000-0000-000000000002');assert.deepEqual(converted.payload.photo_paths,[conversionPath]);assert.equal(converted.payload.recommended_menu,p.recommended_menu);
+assert.equal((await db.query('select original_payload from public.submission_conversion_events where submission_id=$1',[convertSid])).rows[0].original_payload.name,'たんたん表記ゆれ');
+await denied('select public.convert_submission_to_addition($1,$2)',[convertSid,live[0].id],/審査待ち/);
+await identity(1);assert.equal((await db.query('select * from public.submission_conversion_events')).rows.length,0);assert.equal((await db.query('select * from storage.objects where name=$1',[conversionPath])).rows.length,0);
+await identity(3,false);const beforeCount=(await db.query('select count(*) n from public.restaurants')).rows[0].n;
+await db.query('select public.review_submission($1,true,$2)',[convertSid,{}]);assert.equal((await db.query('select count(*) n from public.restaurants')).rows[0].n,beforeCount);
+await identity(null);assert.equal((await db.query('select * from storage.objects where name=$1',[conversionPath])).rows.length,1);assert.ok((await db.query('select public.restaurant_extras($1) e',[live[0].id])).rows[0].e.posts.some(v=>v.id===convertSid));
+console.log('PASS normalized duplicate registration blocked; admin-only pending conversion preserves author, photos and recommendations; audit private; approval adds to existing store without new restaurant');
+
 await db.close();

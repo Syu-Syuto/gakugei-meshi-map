@@ -134,6 +134,7 @@ async function showQueue(){
   await refreshManagedRestaurants();
 }
 $('#open-admin').onclick=async()=>{$('#admin-dialog').showModal();try{if(demo){setStatus('#admin-status','デモ用の審査画面です。実際の管理者権限はSupabase側で検証します。');await showQueue();}else{await captcha('admin');if(await adminCheck())await showQueue();}}catch(e){setStatus('#admin-status',e.message);}};
+window.addEventListener('hashchange',()=>{if(window.location.hash==='#admin'&&!$('#admin-dialog').open)$('#open-admin').click();});
 $('#login-form').onsubmit=e=>{e.preventDefault();busy(e.submitter,async()=>{if(!tokens.admin)throw new Error('人間確認を完了してください。');const f=new FormData(e.target);const {error}=await db.auth.signInWithPassword({email:f.get('email'),password:f.get('password'),options:{captchaToken:tokens.admin}});resetCaptcha('admin');if(error)throw error;e.target.reset();await showQueue();},'#admin-status');};
 $('#logout').onclick=async()=>{if(!demo)await db.auth.signOut();managedRows=[];$('#queue').replaceChildren();$('#managed-restaurants').replaceChildren();$('#detail-dialog').close();$('#detail-content').replaceChildren();$('#admin-tools').hidden=true;$('#login-form').hidden=false;await load();setStatus('#admin-status','ログアウトしました。');};
 $('#refresh-queue').onclick=e=>busy(e.currentTarget,async()=>{await showQueue();await load();},'#admin-status');

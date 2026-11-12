@@ -10,7 +10,8 @@ export function createDigestHandler({db,secret,lineToken,targetId,enabled,fetche
  const finish=async(sent,error='')=>rpc('finish_line_digest',{batch_id:batch.id,lease_id:batch.lease_id,sent,error_code:error});
  const lineFetch=(path,options={})=>fetcher(API+path,{...options,signal:AbortSignal.timeout(10000),headers:{Authorization:'Bearer '+lineToken,...options.headers}});
  try{
-  batch=await rpc('prepare_line_digest',{recipient:targetId});
+  const mode=new URL(req.url).searchParams.get('mode');
+  batch=await rpc(mode==='connection_test'?'prepare_line_connection_test':'prepare_line_digest',{recipient:targetId});
   if(!batch||batch.status!=='ready')return result(200,batch?.status||'empty');
   if(batch.body?.to!==targetId){await finish(false,'recipient_changed');return result(503,'Recipient changed');}
   const [quotaReply,usedReply]=await Promise.all([lineFetch('/quota'),lineFetch('/quota/consumption')]);

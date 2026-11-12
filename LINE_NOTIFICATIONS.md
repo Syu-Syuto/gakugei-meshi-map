@@ -6,7 +6,7 @@
 
 ## 配置
 
-1. 011_line_digest.sqlを適用（通知は初期状態では無効）。
+1. 011_line_digest.sqlと012_line_connection_test.sqlを適用（通知は初期状態では無効）。
 2. Supabase Edge Function `line-digest` にindex.tsとhandler.jsを配置。ブラウザーから呼びません。
 3. LINEで長期チャネルアクセストークンを発行。本人が公式アカウントを友だち追加し、チャネル基本設定の「あなたのユーザーID」を通知先として確認。
 4. Supabase Edge Function Secretsへ `LINE_CHANNEL_ACCESS_TOKEN`・`LINE_TARGET_USER_ID`・`LINE_DIGEST_CRON_SECRET`・`LINE_DIGEST_ENABLED=true` を保存。鍵やユーザーIDはGitHub・公開config.js・チャット本文に保存しません。
@@ -29,6 +29,16 @@
 
 ## 現在の状態
 
-コード・テスト準備中。LINE公式アカウントの作成とMessaging APIの有効化は本人操作で完了。長期アクセストークンは未発行。011・Edge Function・Cronは本番未反映で、自動通知はまだ動いていません。
+2026年11月12日、011・012、Edge Function、非公開Secrets、Vault、Cronを本番へ配置しました。CronのタイムゾーンがGMTで、JSTの指定5時刻に一致することを確認済みです。本人宛ての接続テスト1通が届き、自動返信も止まったことを本人が確認後、line_digest_settings.enabled=trueへ変更しました。以後、実際の定期通知は次の指定時刻からです。テスト送信も月間枠に1通含まれます。
 
 参考：[LINE料金](https://developers.line.biz/ja/docs/messaging-api/pricing/)、[再送](https://developers.line.biz/ja/docs/messaging-api/retrying-api-request/)、[自分のユーザーID](https://developers.line.biz/ja/docs/messaging-api/getting-user-ids/)、[Supabase定期実行](https://supabase.com/docs/guides/functions/schedule-functions)。
+
+
+## 他のツールの通知を追加する
+
+送信アカウントとLINE送信関数は共通です。通知元はline_notification_sources、受信した通知はline_notification_eventsに分離しています。将来別のツールを追加するときは、管理者が通知元の短いキー・表示名・詳細URLを登録し、そのツールの信頼できるサーバーからenqueue_line_notificationを呼びます。source+event_keyで重複登録を防ぎ、全ツールの通知を同じ5回に合流します。月200通の上限・宛先・再送制御も共通です。ブラウザーへservice_roleキーを渡して連携する方法は禁止です。外部ツール用の受信API・個別認証は、そのツールの実装時に用意します。今は外部から無認証で通知を登録できる入口を作りません。
+
+一覧は先頭15件、詳細リンクは先頭4通知元までを1通に入れます。残りは件数を表示します。管理用の通知なので、個人情報や秘密情報を通知タイトルに入れない運用にします。LINE公式アカウントの個別メッセージへの自動応答は、本人の依頼でオフにしました。あいさつメッセージはそのままです。応答メッセージは公式の月間配信枠のカウント対象外ですが、不要な返信を止めるための設定変更です。
+
+
+接続テストは `line-digest?mode=connection_test` を専用キー付きで呼ぶ方式です。DBで一度成功したテストは再送しません。Supabaseのテスト画面に秘密キーを入力した場合は、確認後にヘッダー値を消して画面を閉じます。

@@ -178,7 +178,7 @@ function showPasswordRecovery(){
 async function start(){
   setStatus('#mode',demo?'動作確認用のサンプルを表示しています。実在するお店ではありません。':'追加されたお店は、内容を確認してから掲載します。');
   initMap();if(!demo){const {createClient}=await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');db=createClient(config.supabaseUrl,config.supabasePublishableKey);db.auth.onAuthStateChange(event=>{if(event==='PASSWORD_RECOVERY')showPasswordRecovery();});}
-  await load();
+  await load();if(window.location.hash==='#admin')$('#open-admin').click();
 }
 const workflows=createAdminWorkflows({getDb:()=>db,demo,refresh:async()=>{await showQueue();await load();},appendPhoto,appendRecommendation,getDemoRestaurants:allDemoRestaurants,convertDemo:(item,target)=>{Object.assign(item,{submission_kind:'addition',target_restaurant_id:target.id,name:target.name,genre:target.genre,address:target.address});},getDemoExtras:r=>{const additions=pending.filter(p=>p.status==='approved'&&p.submission_kind==='addition'&&p.target_restaurant_id===r.id);if(!additions.length)return {groups:[],posts:[]};const posts=[r,...additions].map(p=>({...p,group_id:p.recommended_menu||null}));const groups=[...new Set(posts.map(p=>p.recommended_menu).filter(Boolean))].map(name=>({id:name,name,count:1}));return {groups,posts,has_managed_posts:true};},openAddition:r=>{$('#detail-dialog').close();openSubmission(r);}});
 start().catch(e=>{setStatus('#mode','読み込みに失敗しました：'+e.message);$('#results').append(el('p','接続設定と通信状態を確認してください。','empty'));});

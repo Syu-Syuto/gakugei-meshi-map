@@ -3,3 +3,7 @@ project_id = "gakugei-meshi"
 [functions.osm-candidates]
 # Manual getUser verification supports publishable keys and anonymous users.
 verify_jwt = false
+
+[functions.line-digest]
+# A private cron secret is verified by the handler. Never invoke from the browser.
+verify_jwt = false

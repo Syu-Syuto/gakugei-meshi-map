@@ -183,4 +183,21 @@ await db.query('select public.review_submission($1,true,$2)',[convertSid,{}]);as
 await identity(null);assert.equal((await db.query('select * from storage.objects where name=$1',[conversionPath])).rows.length,1);assert.ok((await db.query('select public.restaurant_extras($1) e',[live[0].id])).rows[0].e.posts.some(v=>v.id===convertSid));
 console.log('PASS normalized duplicate registration blocked; admin-only pending conversion preserves author, photos and recommendations; audit private; approval adds to existing store without new restaurant');
 
+
+await db.exec('reset role');await db.exec(await readFile(new URL('../supabase/migrations/011_line_digest.sql',import.meta.url),'utf8'));
+const recipient='U'+'1'.repeat(32);
+for(const [hour,expected] of [[6,true],[9,true],[12,true],[16,true],[21,true],[0,false],[15,false]]){const value=(await db.query('select public.line_digest_slot($1::timestamptz) s',['2026-11-12T'+String(hour).padStart(2,'0')+':00:00+09:00'])).rows[0].s;assert.equal(value!==null,expected);}
+assert.equal((await db.query("select public.line_digest_slot('2026-11-12T06:15:00+09:00') s")).rows[0].s,null);
+const claim=async at=>(await db.query('select public.prepare_line_digest_internal($1,$2::timestamptz) d',[recipient,at])).rows[0].d;
+assert.equal((await claim('2026-11-12T06:00:00+09:00')).status,'disabled');
+await db.exec('update public.line_digest_settings set enabled=true');
+for(const user of [null,1,3]){await identity(user,false);await denied('select public.prepare_line_digest($1)',[recipient]);await denied('select public.prepare_line_digest_internal($1,now())',[recipient]);await denied('select * from public.line_digest_batches');}
+await db.exec('reset role');await db.query('insert into public.submissions(submitter_id,payload,status) values($1,$2,$3)',['10000000-0000-0000-0000-000000000001',{name:'まとめ通知のテスト'},'pending']);let digest=await claim('2026-11-12T06:00:00+09:00');assert.equal(digest.status,'ready');assert.equal(digest.body.to,recipient);assert.equal(digest.body.messages.length,1);assert.ok(digest.body.messages[0].text.includes('#admin'));assert.equal(JSON.stringify(digest.body).includes('submitter_id'),false);assert.ok(digest.body.messages[0].text.length<5000);const firstDigest=digest.id;
+assert.equal((await claim('2026-11-12T06:01:00+09:00')).status,'already_run');
+await db.query('select public.finish_line_digest($1,$2,false,$3)',[digest.id,digest.lease_id,'test_timeout']);digest=await claim('2026-11-12T09:00:00+09:00');assert.equal(digest.id,firstDigest);
+await denied('select public.finish_line_digest($1,$2,true,$3)',[digest.id,'00000000-0000-0000-0000-000000000000',''],/lease/);
+await db.query('select public.finish_line_digest($1,$2,true,$3)',[digest.id,digest.lease_id,'']);assert.equal((await claim('2026-11-12T12:00:00+09:00')).status,'empty');
+await db.exec("insert into public.submissions(submitter_id,payload,status) values('10000000-0000-0000-0000-000000000001','{\"name\":\"通知専用テスト\"}','pending')");digest=await claim('2026-11-12T16:00:00+09:00');assert.equal(digest.status,'ready');assert.equal((await claim('2026-11-13T16:00:00+09:00')).status,'manual_review');
+console.log('PASS LINE queue disabled by default, five JST slots, private service-only RPCs, single run per slot, stable retry body/key, lease checks, empty suppression and expired-retry hold');
+
 await db.close();
